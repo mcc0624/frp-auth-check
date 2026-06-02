@@ -35,6 +35,22 @@ FRPC_PATH = os.path.join(FRPC_DIR, "frpc")
 FRP_VERSION = "0.69.1"
 FRP_URL = f"https://github.com/fatedier/frp/releases/download/v{FRP_VERSION}/frp_{FRP_VERSION}_linux_amd64.tar.gz"
 
+# 优先使用仓库自带的二进制
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+BUNDLED_VERSIONS = [
+    os.path.join(SCRIPT_DIR, "bin", f"frpc_v{FRP_VERSION}"),
+    os.path.join(SCRIPT_DIR, "bin", "frpc_v0.60.0"),
+    os.path.join(SCRIPT_DIR, "bin", "frpc_v0.53.0"),
+]
+
+
+def find_frpc():
+    """查找可用的 frpc 二进制：先找本地捆版，再找已下载的"""
+    for p in BUNDLED_VERSIONS + [FRPC_PATH]:
+        if os.path.exists(p) and os.access(p, os.X_OK):
+            return p
+    return None
+
 
 def download_frpc():
     if os.path.exists(FRPC_PATH):
@@ -183,10 +199,17 @@ def main():
         parser.print_help()
         return
 
-    if not os.path.exists(FRPC_PATH):
-        print("[*] 自动下载 frpc ...")
+    frpc_bin = find_frpc()
+    if frpc_bin:
+        FRPC_PATH = frpc_bin if frpc_bin.startswith(SCRIPT_DIR) else FRPC_PATH
+        if frpc_bin.startswith(SCRIPT_DIR):
+            frpc_path = frpc_bin
+        version_tag = os.path.basename(frpc_bin).replace('frpc_v', 'v')
+        print(f"[*] 使用本地 frpc: {os.path.basename(frpc_bin)} ({os.path.getsize(frpc_bin)//1024//1024}MB)")
+    else:
+        print("[*] 未找到本地 frpc，尝试自动下载 ...")
         if not download_frpc():
-            print("[!] 下载失败")
+            print("[!] 下载失败，请运行 --download")
             return
 
     targets = []

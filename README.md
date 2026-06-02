@@ -7,6 +7,26 @@
 
 ---
 
+## 快速开始
+
+```bash
+# clone 下来直接就能用（自带 frpc 二进制）
+git clone https://github.com/mcc0624/frp-auth-check.git
+cd frp-auth-check
+
+# 检测单个目标
+python3 frp_auth_check.py -t 192.168.1.100:7000
+
+# 批量检测
+python3 frp_auth_check.py -l targets.txt
+
+# 只看无需认证的（重点关注）
+python3 frp_auth_check.py -l targets.txt --no-auth-only
+
+# 输出 JSON 结果
+python3 frp_auth_check.py -l targets.txt -o result.json
+```
+
 ## 原理
 
 使用官方 frpc 二进制文件连接目标 frps，模拟客户端登录流程，
@@ -15,65 +35,36 @@
 ```
 Python 脚本 (调度层)
     │
-    ├── 自动下载 frpc 二进制 (Go 编译，无需 Go 环境)
+    ├── 优先使用仓库自带 bin/ 目录下的 frpc
     ├── 生成临时 TOML 配置文件
     ├── 调用 subprocess 执行 frpc
     └── 分析 frpc 输出 → 判定认证状态
 ```
 
-## 安装
-
-### 依赖
+## 依赖
 
 - Python 3.6+
-- 无第三方 Python 库依赖
+- **无任何第三方库依赖**
+- **无需下载 frpc**（仓库已附带多版本二进制）
 
-### 下载工具
+## 自带二进制
 
-```bash
-# 自动下载 frpc v0.69.1 二进制
-python3 frp_auth_check.py --download
-```
+仓库 `bin/` 目录预置了以下版本的 frpc，覆盖主流兼容范围：
 
-下载后 frpc 会被保存在 `/tmp/frp_bin/frpc`，后续使用无需重复下载。
+| 文件 | 版本 | 大小 | 说明 |
+|------|------|------|------|
+| `bin/frpc_v0.69.1` | v0.69.1 | 17MB | 最新稳定版 |
+| `bin/frpc_v0.60.0` | v0.60.0 | 14MB | 中版本兼容 |
+| `bin/frpc_v0.53.0` | v0.53.0 | 14MB | 旧版本兼容 |
 
-## 快速使用
-
-```bash
-# 检测单个目标
-python3 frp_auth_check.py -t 192.168.1.100:7000
-
-# 批量检测
-python3 frp_auth_check.py -l targets.txt
-
-# 只显示无需认证的目标（重点关注）
-python3 frp_auth_check.py -l targets.txt --no-auth-only
-
-# 输出 JSON 格式结果
-python3 frp_auth_check.py -l targets.txt -o result.json
-```
-
-### 目标文件格式
-
-每行一个目标，支持 `host:port` 或纯域名/IP（默认端口 7000）：
-
-```
-hk.ctfstu.com:7000
-192.168.1.100:7000
-10.0.0.50
-example.com:7000
-```
+脚本会自动按版本从新到旧尝试，无需手动指定。
 
 ## 使用示例
 
 ```bash
-# 1. 下载 frpc
-$ python3 frp_auth_check.py --download
-[*] 下载 https://github.com/fatedier/frp/releases/download/v0.69.1/frp_0.69.1_linux_amd64.tar.gz ...
-[*] frpc 已下载到: /tmp/frp_bin/frpc
-
-# 2. 检测
+# 检测单个目标
 $ python3 frp_auth_check.py -t hk.ctfstu.com:7000
+[*] 使用本地 frpc: frpc_v0.69.1 (17MB)
 [*] 目标: 1，并发: 5
 
   🔓 [hk.ctfstu.com:7000] 无需认证 - 默认(TLS+Mux): 登录成功，无需认证
@@ -85,8 +76,9 @@ $ python3 frp_auth_check.py -t hk.ctfstu.com:7000
   ❓ 未知:    0
 ==================================================
 
-# 3. 批量检测
+# 批量检测 50 个目标
 $ python3 frp_auth_check.py -l targets.txt
+[*] 使用本地 frpc: frpc_v0.69.1 (17MB)
 [*] 目标: 50，并发: 5
 
   🔓 [server1.com:7000] 无需认证 - 默认(TLS+Mux): 登录成功，无需认证
@@ -119,14 +111,23 @@ $ python3 frp_auth_check.py -l targets.txt
 
 ## 版本兼容性
 
+### 服务端兼容
+
 | 服务端版本 | 协议编码 | 默认 TLS | 默认 TCPMux | 本工具兼容性 |
 |-----------|---------|----------|------------|------------|
-| **v0.60 ~ 最新** | JSON | ✅ 是 | ✅ 是 | ✅ 全兼容 |
-| **v0.50 ~ v0.59** | JSON | ❌ 否 | ✅ 是 | ✅ 自动降级 |
+| **v0.60 ~ 最新** | JSON | ✅ 是 | ✅ 是 | ✅ 全兼容（配置①） |
+| **v0.50 ~ v0.59** | JSON | ❌ 否 | ✅ 是 | ✅ 自动降级（配置②） |
 | **v0.48 及以下** | **msgpack** | ❌ 否 | ❌ 否 | ❌ 不兼容 |
 
-frp 在 **v0.48 及以下** 使用 msgpack 编码，与 v0.69.1 的 frpc 使用的 JSON 协议不互通。
-如果目标运行的是古董版本，建议使用对应版本的 frpc 手动测试。
+### 自带 frpc 覆盖
+
+自带三个版本 frpc 的目的：
+
+1. **v0.69.1** → 覆盖 v0.60+ 最新版服务端
+2. **v0.60.0** → 覆盖 v0.55+ 服务端
+3. **v0.53.0** → 覆盖 v0.50+ 服务端
+
+如果目标服务端版本过于古老（msgpack 编码），建议使用对应版本的 frpc 手动测试。
 
 ## 安全提醒
 
@@ -169,6 +170,10 @@ auth.token = "your-random-secret-here"
 ```
 frp-auth-check/
 ├── frp_auth_check.py   # 主脚本
+├── bin/                # 自带 frpc 二进制
+│   ├── frpc_v0.69.1    # 最新版 (17MB)
+│   ├── frpc_v0.60.0    # 中版    (14MB)
+│   └── frpc_v0.53.0    # 旧版    (14MB)
 └── README.md           # 本文档
 ```
 
