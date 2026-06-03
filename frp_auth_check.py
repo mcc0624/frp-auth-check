@@ -33,28 +33,91 @@ import random
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 DEFAULT_PORT = 7000
+
+# 脚本自身所在目录
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+BIN_DIR = os.path.join(SCRIPT_DIR, "bin")
+
+# 下载目标路径
 FRPC_DIR = "/tmp/frp_bin"
 FRPC_PATH = os.path.join(FRPC_DIR, "frpc")
 FRP_VERSION = "0.69.1"
 FRP_URL = f"https://github.com/fatedier/frp/releases/download/v{FRP_VERSION}/frp_{FRP_VERSION}_linux_amd64.tar.gz"
 
+# GitHub API key 文件路径
+GITHUB_KEY_FILE = "/root/.ssh/key"
+
 # 探测用端口范围（随机避开知名端口）
 PROBE_PORT_RANGE = range(30000, 60000)
 
 
+def find_local_frpc():
+    """
+    优先从 bin/ 目录查找本地 frpc 二进制。
+    按版本号从新到旧排序，返回最版本的路径；如果找不到返回 None。
+    """
+    if not os.path.isdir(BIN_DIR):
+        return None
+
+    frpc_files = []
+    for f in os.listdir(BIN_DIR):
+        if f.startswith("frpc") and os.path.isfile(os.path.join(BIN_DIR, f)):
+            frpc_files.append(f)
+
+    if not frpc_files:
+        return None
+
+    # 按文件名（含版本号）倒序排列，新版在前
+    frpc_files.sort(reverse=True)
+    best = os.path.join(BIN_DIR, frpc_files[0])
+    os.chmod(best, 0o755)
+    print(f"[*] 使用本地 frpc: {frpc_files[0]}")
+    return best
+
+
+def read_github_token():
+    """从 /root/.ssh/key 读取 GitHub API token"""
+    try:
+        if os.path.exists(GITHUB_KEY_FILE):
+            with open(GITHUB_KEY_FILE) as f:
+                token = f.read().strip()
+                if token:
+                    return token
+    except Exception:
+        pass
+    return None
+
+
 def download_frpc():
-    """下载 frpc 二进制"""
+    """下载 frpc 二进制（使用 GitHub token 认证，防限流）"""
     if os.path.exists(FRPC_PATH):
         print(f"[*] frpc 已存在: {FRPC_PATH}")
         return True
+
     os.makedirs(FRPC_DIR, exist_ok=True)
     tarball = os.path.join(FRPC_DIR, "frp.tar.gz")
+
     print(f"[*] 下载 {FRP_URL} ...")
+
+    # 读取 GitHub token
+    token = read_github_token()
+
     try:
-        urllib.request.urlretrieve(FRP_URL, tarball)
+        if token:
+            # 带 token 认证下载（防 GitHub API 限流）
+            req = urllib.request.Request(FRP_URL)
+            req.add_header("Authorization", f"token {token}")
+            req.add_header("Accept", "application/octet-stream")
+            with urllib.request.urlopen(req) as resp:
+                with open(tarball, "wb") as f:
+                    f.write(resp.read())
+        else:
+            # 无 token，匿名下载
+            urllib.request.urlretrieve(FRP_URL, tarball)
     except Exception as e:
         print(f"[!] 下载失败: {e}")
         return False
+
     print("[*] 解压中...")
     with tarfile.open(tarball, "r:gz") as tar:
         for member in tar.getmembers():
@@ -62,8 +125,10 @@ def download_frpc():
                 member.name = os.path.basename(member.name)
                 tar.extract(member, FRPC_DIR, filter='data')
                 break
+
     os.chmod(FRPC_PATH, 0o755)
     os.remove(tarball)
+
     if os.path.exists(FRPC_PATH):
         print(f"[*] frpc 已下载到: {FRPC_PATH}")
         return True
@@ -354,11 +419,18 @@ def main():
         parser.print_help()
         return
 
-    if not os.path.exists(FRPC_PATH):
+    # 优先使用本地 bin/ 目录的 frpc
+    local_frpc = find_local_frpc()
+    if local_frpc:
+        frpc_path = local_frpc
+    elif os.path.exists(FRPC_PATH):
+        frpc_path = FRPC_PATH
+    else:
         print("[*] 自动下载 frpc ...")
         if not download_frpc():
             print("[!] 下载失败")
             return
+        frpc_path = FRPC_PATH
 
     targets = []
     if args.target:
@@ -423,7 +495,7 @@ def main():
     with ThreadPoolExecutor(max_workers=args.threads) as executor:
         fut = {
             executor.submit(
-                check_server_with_probe, h, p, FRPC_PATH, not args.no_probe
+                check_server_with_probe, h, p, frpc_path, not args.no_probe
             ): (h, p)
             for h, p in parsed
         }
