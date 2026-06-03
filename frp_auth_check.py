@@ -44,8 +44,7 @@ FRPC_PATH = os.path.join(FRPC_DIR, "frpc")
 FRP_VERSION = "0.69.1"
 FRP_URL = f"https://github.com/fatedier/frp/releases/download/v{FRP_VERSION}/frp_{FRP_VERSION}_linux_amd64.tar.gz"
 
-# GitHub API key 文件路径
-GITHUB_KEY_FILE = "/root/.ssh/key"
+
 
 # 探测用端口范围（随机避开知名端口）
 PROBE_PORT_RANGE = range(30000, 60000)
@@ -75,21 +74,8 @@ def find_local_frpc():
     return best
 
 
-def read_github_token():
-    """从 /root/.ssh/key 读取 GitHub API token"""
-    try:
-        if os.path.exists(GITHUB_KEY_FILE):
-            with open(GITHUB_KEY_FILE) as f:
-                token = f.read().strip()
-                if token:
-                    return token
-    except Exception:
-        pass
-    return None
-
-
 def download_frpc():
-    """下载 frpc 二进制（使用 GitHub token 认证，防限流）"""
+    """从 GitHub Releases 下载 frpc 二进制"""
     if os.path.exists(FRPC_PATH):
         print(f"[*] frpc 已存在: {FRPC_PATH}")
         return True
@@ -99,21 +85,8 @@ def download_frpc():
 
     print(f"[*] 下载 {FRP_URL} ...")
 
-    # 读取 GitHub token
-    token = read_github_token()
-
     try:
-        if token:
-            # 带 token 认证下载（防 GitHub API 限流）
-            req = urllib.request.Request(FRP_URL)
-            req.add_header("Authorization", f"token {token}")
-            req.add_header("Accept", "application/octet-stream")
-            with urllib.request.urlopen(req) as resp:
-                with open(tarball, "wb") as f:
-                    f.write(resp.read())
-        else:
-            # 无 token，匿名下载
-            urllib.request.urlretrieve(FRP_URL, tarball)
+        urllib.request.urlretrieve(FRP_URL, tarball)
     except Exception as e:
         print(f"[!] 下载失败: {e}")
         return False
